@@ -333,7 +333,10 @@ components. It changes several defaults at once:
   at runtime via `api.iconify.design` rather than embedding SVGs in the bundle; the
   `@iconify-json/*` packages provide names and dev-mode resolution.
 - Auto-imports generate `auto-imports.d.ts` and `components.d.ts` — add both to the
-  tsconfig `include` and to the oxlint/oxfmt `ignorePatterns`.
+  tsconfig `include` and to the oxlint/oxfmt `ignorePatterns`, and gitignore them
+  (`/auto-imports.d.ts`, `/components.d.ts`): the declarations embed pnpm store paths
+  with version hashes, so tracking them churns the diff on every dependency update.
+  They regenerate on dev/build — a fresh clone needs one build before `vue-tsc` passes.
 - Add codeSplitting groups `ui` (priority 50) and `icons` (priority 40) for the
   Nuxt UI/Reka and Iconify modules.
 
