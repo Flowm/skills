@@ -332,11 +332,25 @@ components. It changes several defaults at once:
   rather than running two icon systems. Note: in Vue-plugin mode Nuxt UI resolves icons
   at runtime via `api.iconify.design` rather than embedding SVGs in the bundle; the
   `@iconify-json/*` packages provide names and dev-mode resolution.
-- Auto-imports generate `auto-imports.d.ts` and `components.d.ts` — add both to the
-  tsconfig `include` and to the oxlint/oxfmt `ignorePatterns`, and gitignore them
-  (`/auto-imports.d.ts`, `/components.d.ts`): the declarations embed pnpm store paths
-  with version hashes, so tracking them churns the diff on every dependency update.
-  They regenerate on dev/build — a fresh clone needs one build before `vue-tsc` passes.
+- Keep **component** auto-registration on — `<UButton>` and friends usable in templates
+  without imports. That generates `components.d.ts`.
+- Do **not** enable Nuxt UI's **composable/function** auto-import (the
+  `autoImport: { imports: ["vue", "vue-router", "pinia"] }` option on the `ui()` plugin,
+  which generates `auto-imports.d.ts`). Import composables explicitly instead: `ref`/
+  `computed`/… from `vue`, `useRoute`/`useRouter` from `vue-router`, `defineStore`/
+  `storeToRefs` from `pinia`, and Nuxt UI composables from `@nuxt/ui/composables/<Name>`
+  (e.g. `import { useToast } from "@nuxt/ui/composables/useToast"`). Explicit imports keep
+  the code greppable and, crucially, make it type-check without the generated files
+  present (see next point).
+- Both `auto-imports.d.ts` and `components.d.ts` are gitignored (`/auto-imports.d.ts`,
+  `/components.d.ts`) — their declarations embed pnpm store paths with version hashes, so
+  tracking them churns the diff on every dependency update. Because they are absent on a
+  fresh checkout, **CI's `vue-tsc` runs without them**: relying on composable auto-import
+  would fail CI with `TS2304: Cannot find name 'ref'`, which is exactly why composables
+  are imported explicitly above. Template component types (`components.d.ts`) resolve fine
+  when absent, so no build-before-lint step is needed. Still add both filenames to the
+  tsconfig `include` (they harmlessly match nothing when absent) and to the oxlint/oxfmt
+  `ignorePatterns`.
 - Add codeSplitting groups `ui` (priority 50) and `icons` (priority 40) for the
   Nuxt UI/Reka and Iconify modules.
 
