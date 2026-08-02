@@ -1,6 +1,6 @@
 ---
 name: comment-audit
-description: Audit the comments in a codebase for value and verbosity, then rewrite or remove the ones that don't earn their place. Use when the user asks to "audit comments", "clean up comments", "review the comments", "trim the comments", "are these comments useful", "there are too many comments", or asks for a comment pass over a repo, directory, or diff. Runs as triage-then-apply with a report in between, so the user filters before anything is edited.
+description: Audit the comments in a codebase for value and verbosity, then rewrite or remove the ones that don't earn their place. Use when the user asks to "audit comments", "clean up comments", "review the comments", "trim the comments", "are these comments useful", "there are too many comments", or asks for a comment pass over a repo, a directory, or the files changed in a branch or pull request. Runs as triage-then-apply with a report in between, so the user filters before anything is edited.
 ---
 
 # Comment Audit
@@ -54,53 +54,96 @@ generator. Flag both sites and let the user decide.
 
 Edit nothing.
 
+### Scope
+
+Settle the scope before collecting anything. A whole-repository audit on a large
+codebase produces thousands of rows, which is a worse report than a narrow one.
+
+| The user asks for | Scope |
+| --- | --- |
+| "audit the comments" on a small repo | Everything tracked |
+| a directory, package, or module | Those paths |
+| "the comments in this branch/PR" | Files changed since the base branch |
+
+If they name no scope and the repository is large, propose one rather than
+extracting everything. Say which you picked.
+
 ### Collect
 
-Don't read every file. Extract comments mechanically with the following code line for
-context, then read only the files where the classification is genuinely unclear.
+Don't read every file. Extract the comments mechanically, then read only the files
+where the classification is genuinely unclear.
 
-```python
-#!/usr/bin/env python3
-"""Extract comment blocks with the following code line, per file."""
-import re, subprocess
+Run `scripts/extract_comments.py` from this skill's directory, with the working
+directory set to the repository being audited — it reads the file list from git:
 
-EXT = r"\.(ts|tsx|js|jsx|vue|py|go|rs|css|html)$"
-files = [f for f in subprocess.check_output(["git", "ls-files"], text=True).split()
-         if re.search(EXT, f)]
-
-pat = re.compile(r"^\s*(//|/\*|\*|#|<!--)")
-for f in files:
-    try:
-        lines = open(f, encoding="utf-8").read().split("\n")
-    except Exception:
-        continue
-    print("=" * 4, f)
-    i = 0
-    while i < len(lines):
-        if pat.match(lines[i]) and lines[i].strip() not in ("*", "*/"):
-            start, block = i, []
-            while i < len(lines) and pat.match(lines[i]):
-                block.append(lines[i].strip())
-                i += 1
-            j = i
-            while j < len(lines) and not lines[j].strip():
-                j += 1
-            print(f"  L{start + 1}:")
-            for b in block:
-                print("    | " + b[:200])
-            print("    > " + (lines[j].strip()[:150] if j < len(lines) else ""))
-        else:
-            m = re.search(r"\S\s+(//.*)$", lines[i])
-            if m and "://" not in m.group(1):
-                print(f"  L{i + 1}:\n    | TRAILING: {m.group(1)}\n    > {lines[i].strip()[:150]}")
-            i += 1
+```bash
+"$SKILL_DIR"/scripts/extract_comments.py
+"$SKILL_DIR"/scripts/extract_comments.py src/components src/composables
+"$SKILL_DIR"/scripts/extract_comments.py --since main
 ```
 
-Adjust `EXT` and the comment pattern to the languages in scope. Exclude vendored,
-generated, and third-party paths, and lockfiles.
+Both scripts here are Python and shell out only to `git`, so they run wherever
+Python does; invoke them as `python3 <path>` where the shebang isn't honoured.
+
+It prints every comment block with its following code line, grouped by file.
+Positional arguments are git pathspecs, so a directory scopes to everything under
+it, and `--ext ts,vue` narrows by language. Add an entry to `LANGS` in the script
+only when a language it doesn't know is in scope; don't edit it per repository
+otherwise.
+
+Two more modes, both for the report:
+
+- `--tsv` emits `file, line, branch, comment, code` columns. Build the report table
+  from these rather than retyping the listing — see [Report](#report).
+- `--count` prints totals only, for the reconciliation in Phase 2.
+- `--rev REF` reads the files as they were at a commit, through `git show`. Nothing
+  is checked out, so it is safe to point at another revision while uncommitted work
+  sits in the tree.
+
+`--exclude` drops paths containing any of the given substrings, but reach for it
+only when vendored or generated code is **tracked**. The file list comes from
+`git ls-files`, so anything gitignored is already out; on a normal repository the
+flag changes nothing.
+
+Comment tokens are per language in that script, and the distinction matters when
+reading its output. `#` opens a comment only in the Python family; elsewhere it is
+code — a TypeScript private field (`#offset = 0`), a CSS id selector (`#app {`), a
+Rust attribute (`#[derive(...)]`).
 
 The extractor will false-positive on comment tokens inside strings, template literals,
 and markup text. Verify anything surprising against the file before classifying it.
+
+#### Branch scope
+
+`--since main` selects the files changed between the merge base of `main` and `HEAD`,
+so commits that landed on `main` after the branch forked stay out of the audit.
+Uncommitted work is included, which is what a mid-cleanup pass needs.
+
+Files, not lines: a branch that touched one function in a 400-line file puts every
+comment in that file in the listing. Blocks the branch actually added or edited are
+marked `[branch]`, and a trailer reports how many.
+
+**Default to the `[branch]` rows.** Cleaning up comments the branch never touched
+inflates its diff, buries the real change under unrelated edits, and hands the
+reviewer a mixed commit. Report the unmarked blocks in a separate section, offer them
+as a follow-up audit on its own branch, and let the user opt in.
+
+`--since` cannot show a comment the branch **deleted**. The extractor reads the
+working tree, and a deleted comment isn't in it. That is fine when auditing your own
+cleanup, and wrong when reviewing someone else's — "did this branch drop a comment
+that was load-bearing?" needs the state before it. Extract both sides and diff the
+listings:
+
+```bash
+BASE="$(git merge-base main HEAD)"
+"$SKILL_DIR"/scripts/extract_comments.py --rev "$BASE" --tsv > /tmp/before.tsv
+"$SKILL_DIR"/scripts/extract_comments.py --tsv > /tmp/after.tsv
+diff <(cut -f4 /tmp/before.tsv | sort) <(cut -f4 /tmp/after.tsv | sort)
+```
+
+Lines only in `before.tsv` are the comments the branch removed. Judge those against
+the standard exactly as if they were still there, and flag any that carried a reason
+the code doesn't.
 
 ### Classify
 
@@ -141,12 +184,40 @@ Write `comment-audit.md`, grouped by directory. One table per file:
 | 42 | `// Truncated to one line…` | tighten | Short reason. |
 ```
 
-Report **all** blocks, including borderline ones — the user filters, not you. Rows may
-cover a run of adjacent blocks; say so where the counts would otherwise mislead.
+Build those rows from `--tsv`, don't retype the listing. Columns 1, 2 and 4 are the
+file, line and comment; you add Class and Reason. Transcribing by hand is slow, and
+it corrupts the line numbers and counts the report depends on.
 
-Open with the scope, the legend, and a class-count table taken from the actual rows
-(count them, don't estimate). Close with the findings above and a suggested Phase 2
-commit order, cheapest first.
+Report **all** blocks in scope, including borderline ones — the user filters, not you.
+Rows may cover a run of adjacent blocks; say so where the counts would otherwise
+mislead.
+
+Open with the scope — the paths or the base ref, stated exactly — then the legend and
+a class-count table taken from the actual rows (count them, don't estimate). Close
+with the findings above and a suggested Phase 2 commit order, cheapest first.
+
+#### Tier the report when it is large
+
+A whole-repository extraction runs to thousands of blocks; one flat table that long is
+a document nobody reads. Above roughly 300 rows, lead with a per-directory summary and
+hold the detail back:
+
+```markdown
+| Directory | Blocks | keep | tighten | delete | uncertain | never |
+| --- | --- | --- | --- | --- | --- | --- |
+| src/domain | 342 | 180 | 60 | 96 | 4 | 2 |
+```
+
+Then write full row tables for the directories the user picks, and say plainly that
+the rest are summarised and available on request. Classify every block either way —
+the summary counts have to come from real classifications, not estimates — but only
+render the tables that will be read.
+
+Narrowing the scope up front beats tiering. Offer that first.
+
+Under branch scope, split the tables: the `[branch]` blocks first, everything else
+under a clearly separate heading for a later pass. Count the two groups separately so
+the user can see what cleaning only their own comments would cost.
 
 Add a **naming** section: where a comment only exists because a name is unclear, flag
 the name. Do not rename anything, and do not write a comment to compensate.
@@ -159,6 +230,10 @@ Report and wait. Do not begin Phase 2 unsolicited.
 
 Work in the order agreed with the user. Ask how many commits they want if the natural
 grouping is more than a handful; group by directory otherwise.
+
+Under branch scope the cleanup belongs on the branch as its own commit, separate from
+the feature work, so a reviewer can skip it. If the user wants the untouched blocks
+cleaned too, that is a different branch off the base — not more commits on this one.
 
 Leave every **uncertain** row untouched unless the user resolved it, and say in the
 final report which ones you left.
@@ -179,16 +254,48 @@ compensate.
 
 ### Verifying comment-only
 
-Filter out every line that starts with a comment token and eyeball what remains:
+`git diff -I` drops a change when **every** one of its changed lines matches the
+pattern, so a comment-only cleanup leaves nothing behind:
 
 ```bash
-git diff -U0 -- <paths> | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' \
-  | grep -vE '^[+-]\s*(//|/\*|\*|\*/|#|<!--)' | grep -vE '^[+-]\s*$'
+git diff --stat -I'^[[:space:]]*(//|/\*|\*|<!--|-->)' -- <paths>
 ```
 
-Continuation lines inside multi-line comments survive this filter — they carry no
-prefix. Read each one and confirm it belongs to a comment body. Anything else is a
-real code change and must be undone.
+Empty output means every changed line was a comment. Any file listed has something
+else in it — drop `--stat` to read the surviving hunks. Each one is either a comment
+body line that doesn't start with a token (block-comment prose, a JSDoc continuation
+that lost its `*`) or a real code change that must be undone.
+
+**Expect survivors; the list is not a failure.** Deleting a comment usually takes its
+trailing blank line, and a blank line matches no token, so that hunk is reported. On a
+real 77-file cleanup this listed 18 files, every one of them a comment-plus-blank hunk
+or a multi-line HTML comment body — no code changes at all. Read them; don't assume
+the cleanup broke something.
+
+When the survivor list is long enough that opening each file is the slow part, filter
+the same range by line instead. This drops blank lines, which `-I` cannot:
+
+```bash
+git diff -U0 -- <paths> | grep -E '^[-+]' | grep -vE '^(\+\+\+|---)' \
+  | grep -vE '^[-+][[:space:]]*((//|/\*|\*|<!--|-->).*)?$'
+```
+
+On the same cleanup that leaves 34 lines, all of them comment prose. Slower to read
+per line, but nothing to open. Use whichever suits the size of the diff.
+
+`-I` matches line content without the `+`/`-` prefix, so diff headers need no
+filtering, and `\*` already covers `*/`.
+
+Add `-I'^[[:space:]]*#'` for Python paths, and **only** for those. `#` is a private
+field in TypeScript, an id selector in CSS, and an attribute in Rust; include it there
+and a deleted `#offset`, a renamed `#app`, or an edited `#[derive(...)]` vanishes from
+the output, which then reads as "comment-only". `*` is the same hazard in miniature —
+it also opens a JS generator method.
+
+Never pass an `-I` pattern that can match the empty string. `-I'^$'` and
+`-I'^[[:space:]]*$'` make git ignore the diff wholesale, and every real change
+disappears with it. That is why blank-line changes are not filtered here; a hunk that
+adds or removes one gets reported, which is the safe direction.
 
 When the edits touch UI templates, compile-and-test is not full proof. Render the
 affected pages and confirm the structure survives.
