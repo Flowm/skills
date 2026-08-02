@@ -96,10 +96,10 @@ directory set to the repository being audited — it reads the file list from gi
 
 It prints every comment block with its following code line, grouped by file. Both
 scripts are Python and shell out only to `git`; invoke them as `python3 <path>` where
-the shebang isn't honoured. Positional arguments are git pathspecs, so a directory scopes to everything under
-it, and `--ext ts,vue` narrows by language. Add an entry to `LANGS` in the script
-only when a language it doesn't know is in scope; don't edit it per repository
-otherwise.
+the shebang isn't honoured. Positional arguments are git pathspecs, so a directory
+scopes to everything under it, and `--ext ts,vue` narrows by language. Add an entry to
+`LANGS` in the script only when a language it doesn't know is in scope; don't edit it
+per repository otherwise.
 
 Two more modes, both for the report:
 
@@ -166,7 +166,11 @@ Recurring **delete** patterns worth naming explicitly in the report:
 
 - Section labels in markup (`<!-- Header -->`, `<!-- Legend -->`) that restate the
   element or heading below them
-- Banner dividers (`// ---- Sorting ----`) that only label the declarations under them
+- Banner dividers: the rule of dashes is decoration and always goes. Judge the label
+  on its own. `// --- Decision rule ---` over `const decision = decide(results)`
+  restates the line and goes with the dashes, while `// --- Raw panels (no builtin
+  baked, so partition-independent) ---` keeps its content as a plain comment. Deleting
+  the whole block is only right when the label was carrying nothing
 - Changelog comments: "was 52", "Previously returned X", "now lives in", "moved to",
   "no longer"
 - Plan or work-package status markers ("Phase 4", "WP3", "WIRED IN", "once the gate
@@ -359,8 +363,8 @@ argument for leaving the original untouched.
 
 ## Traps
 
-- **Banner blocks are three lines.** Deleting the label leaves two orphaned rule lines.
-  Remove the whole block.
+- **Banner blocks are three lines.** Dropping the dashes without the label, or the
+  reverse, leaves an orphan. Rewrite the block as a whole: gone, or one plain line.
 - **Match full lines including leading whitespace.** The same comment text appears at
   several indentation depths; a substring replace hits the wrong one or nothing at all.
 - **Batch edits with a script that asserts one match per replacement** and reports
