@@ -16,6 +16,15 @@ Personal [agent skills](https://skills.sh) for Claude Code, Cursor, Zed, and oth
 npx skills add Flowm/skills
 ```
 
+## Development
+
+Skills that ship executable scripts carry their own tests. Run them after changing a
+script or the commands quoted in its `SKILL.md`:
+
+```bash
+skills/comment-audit/tests/run.sh
+```
+
 ## License
 
 [MIT](LICENSE)
