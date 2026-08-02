@@ -247,7 +247,8 @@ For each group:
 2. Run the formatter — it may reflow the comments you just rewrote.
 3. Run lint, typecheck, build, and tests.
 4. Verify the diff is comment-only (below).
-5. Commit that group alone.
+5. Reconcile the line counts (below).
+6. Commit that group alone.
 
 If the build or tests break, revert that group and report it. Never adjust code to
 compensate.
@@ -296,6 +297,36 @@ Never pass an `-I` pattern that can match the empty string. `-I'^$'` and
 `-I'^[[:space:]]*$'` make git ignore the diff wholesale, and every real change
 disappears with it. That is why blank-line changes are not filtered here; a hunk that
 adds or removes one gets reported, which is the safe direction.
+
+### Reconciling the line counts
+
+A second check that never looks at a comment token in the diff:
+
+```bash
+"$SKILL_DIR"/scripts/reconcile_comment_lines.py HEAD
+```
+
+If every non-blank line the diff touched was a comment, the extractor's comment-line
+delta equals the diff's net non-blank delta. The script computes both and exits
+non-zero when they disagree. Pass a branch instead of `HEAD` to check a whole
+cleanup, and give it the same scope flags as the extractor — it applies them to
+both sides, so the two counts always cover the same files.
+
+It only reads: the base state comes out of git with `git show`, so it checks nothing
+out and cannot disturb the edits in progress.
+
+It earns its place by being independent of the token list: if `LANGS` is wrong for a
+language in scope, the comment count is wrong and the two figures stop agreeing. The
+comment-only filter cannot notice that, because it is built from the same assumption.
+
+**It does not replace that filter.** A *modified* line is one deletion plus one
+insertion, so `retries = 3` becoming `retries = 5` nets to zero and reconciles
+cleanly. `git diff -I` catches that; this catches lines added or deleted. Run both.
+
+One known false alarm: removing a trailing comment shortens a line that stays in the
+file, so the comment count drops while the diff's non-blank net holds at zero. Expect
+a mismatch of one per trailing comment removed, and read a small mismatch before
+believing it.
 
 When the edits touch UI templates, compile-and-test is not full proof. Render the
 affected pages and confirm the structure survives.
