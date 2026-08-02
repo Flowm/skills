@@ -94,11 +94,9 @@ directory set to the repository being audited — it reads the file list from gi
 "$SKILL_DIR"/scripts/extract_comments.py --since main
 ```
 
-Both scripts here are Python and shell out only to `git`, so they run wherever
-Python does; invoke them as `python3 <path>` where the shebang isn't honoured.
-
-It prints every comment block with its following code line, grouped by file.
-Positional arguments are git pathspecs, so a directory scopes to everything under
+It prints every comment block with its following code line, grouped by file. Both
+scripts are Python and shell out only to `git`; invoke them as `python3 <path>` where
+the shebang isn't honoured. Positional arguments are git pathspecs, so a directory scopes to everything under
 it, and `--ext ts,vue` narrows by language. Add an entry to `LANGS` in the script
 only when a language it doesn't know is in scope; don't edit it per repository
 otherwise.
@@ -112,18 +110,13 @@ Two more modes, both for the report:
   is checked out, so it is safe to point at another revision while uncommitted work
   sits in the tree.
 
-`--exclude` drops paths containing any of the given substrings, but reach for it
-only when vendored or generated code is **tracked**. The file list comes from
-`git ls-files`, so anything gitignored is already out; on a normal repository the
-flag changes nothing.
+`--exclude` drops paths by substring, but the list comes from `git ls-files`, so
+ignored paths are already out — reach for it only when vendored code is tracked.
 
-Comment tokens are per language in that script, and the distinction matters when
-reading its output. `#` opens a comment only in the Python family; elsewhere it is
-code — a TypeScript private field (`#offset = 0`), a CSS id selector (`#app {`), a
-Rust attribute (`#[derive(...)]`).
-
-The extractor will false-positive on comment tokens inside strings, template literals,
-and markup text. Verify anything surprising against the file before classifying it.
+The script knows which tokens open a comment in which language, so a CSS `#app {`
+shows up as code rather than comment text. It will still false-positive on tokens
+inside strings, template literals and markup; check anything surprising against the
+file before classifying it.
 
 #### Branch scope
 
@@ -189,22 +182,17 @@ Two findings are worth more than the whole cleanup, so hunt for them deliberatel
 ### Check the classification before writing it up
 
 A pass that protects too much looks identical to a clean codebase: a large `keep`
-column and a short diff. Before writing the report, sanity-check the split.
+column and a short diff. Check the split before writing it up.
 
-- **Compare classes across comment syntaxes.** Count `keep` for `/** */` blocks
-  against `keep` for `//` blocks. They should be in the same range. A codebase where
-  nearly every line comment is fair game and nearly every doc comment is protected is
-  not a real finding — it means doc syntax is being read as a licence to skip.
-- **Count what you classed `never`.** It should be a short list of licence headers,
-  directives, generated markers and ticket refs. If it runs to dozens of ordinary doc
-  comments, the protected list has been over-applied; re-read
-  [The standard](#the-standard) and reclassify.
+- **Compare classes across comment syntaxes.** `keep` for `/** */` blocks should sit in
+  the same range as `keep` for `//` blocks. Two real passes over one repository removed
+  56 and 51 line-comment blocks — near-identical judgement — but 23 and 1 doc-comment
+  blocks. The second had exempted a syntax rather than judged it.
+- **Count what you classed `never`.** Licence headers, directives, generated markers,
+  ticket refs — a short list. Dozens of ordinary doc comments means the protected list
+  has been over-applied; re-read [The standard](#the-standard) and reclassify.
 - **Count the files you opened** against the files in scope. Those numbers match, or
   the scope was narrowed without saying so.
-
-A real measurement of this: two passes over the same repository removed 56 and 51
-line-comment blocks — near-identical judgement — while removing 23 and 1 doc-comment
-blocks. The second pass was not more careful, it had quietly exempted a whole syntax.
 
 ### Report
 
@@ -244,8 +232,6 @@ Then write full row tables for the directories the user picks, and say plainly t
 the rest are summarised and available on request. Classify every block either way —
 the summary counts have to come from real classifications, not estimates — but only
 render the tables that will be read.
-
-Narrowing the scope up front beats tiering. Offer that first.
 
 Under branch scope, split the tables: the `[branch]` blocks first, everything else
 under a clearly separate heading for a later pass. Count the two groups separately so
@@ -300,24 +286,21 @@ body line that doesn't start with a token (block-comment prose, a JSDoc continua
 that lost its `*`) or a real code change that must be undone.
 
 **Expect survivors; the list is not a failure.** Deleting a comment usually takes its
-trailing blank line, and a blank line matches no token, so that hunk is reported. On a
-real 77-file cleanup this listed 18 files, every one of them a comment-plus-blank hunk
-or a multi-line HTML comment body — no code changes at all. Read them; don't assume
-the cleanup broke something.
+trailing blank line with it, and a blank line matches no token. On a real 77-file
+cleanup this listed 18 files — every one a comment-plus-blank hunk or a multi-line
+HTML comment body, no code changes at all.
 
-When the survivor list is long enough that opening each file is the slow part, filter
-the same range by line instead. This drops blank lines, which `-I` cannot:
+When opening each survivor is the slow part, filter by line instead. That drops blank
+lines, which `-I` cannot:
 
 ```bash
 git diff -U0 -- <paths> | grep -E '^[-+]' | grep -vE '^(\+\+\+|---)' \
   | grep -vE '^[-+][[:space:]]*((//|/\*|\*|<!--|-->).*)?$'
 ```
 
-On the same cleanup that leaves 34 lines, all of them comment prose. Slower to read
-per line, but nothing to open. Use whichever suits the size of the diff.
-
-`-I` matches line content without the `+`/`-` prefix, so diff headers need no
-filtering, and `\*` already covers `*/`.
+That leaves 34 lines on the same cleanup, all comment prose. Pick whichever suits the
+size of the diff. Note `\*` already covers `*/`, and `-I` matches content without the
+`+`/`-` prefix, so neither needs adding.
 
 Add `-I'^[[:space:]]*#'` for Python paths, and **only** for those. `#` is a private
 field in TypeScript, an id selector in CSS, and an attribute in Rust; include it there
@@ -340,12 +323,9 @@ A second check that never looks at a comment token in the diff:
 
 If every non-blank line the diff touched was a comment, the extractor's comment-line
 delta equals the diff's net non-blank delta. The script computes both and exits
-non-zero when they disagree. Pass a branch instead of `HEAD` to check a whole
-cleanup, and give it the same scope flags as the extractor — it applies them to
-both sides, so the two counts always cover the same files.
-
-It only reads: the base state comes out of git with `git show`, so it checks nothing
-out and cannot disturb the edits in progress.
+non-zero when they disagree. Pass a branch instead of `HEAD` to check a whole cleanup,
+and give it the same scope flags as the extractor so both counts cover the same files.
+It only reads — the base state comes out of `git show`, nothing is checked out.
 
 It earns its place by being independent of the token list: if `LANGS` is wrong for a
 language in scope, the comment count is wrong and the two figures stop agreeing. The
