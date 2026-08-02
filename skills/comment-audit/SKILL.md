@@ -30,6 +30,13 @@ A field doc earns its place when it adds a unit, a range, a null contract, a def
 format, or an ordering convention — none of which the type carries. It does not when it
 restates the identifier.
 
+**A `/** */` block is not protected by its syntax.** In a typed language the signature
+already carries the types, so a doc comment faces the same test as any other comment
+and is deleted on the same grounds. `/** Every stored weight set on this device. */`
+over `listWeights(): WeightEntry[]` adds "on this device" and nothing else; if that
+scope matters, tighten to it, and if it doesn't, the block goes. Only the narrow cases
+under [Never touch](#never-touch) survive on syntax alone.
+
 A test comment earns its place when it derives an expected value through several steps,
 or names the regression being pinned. It does not when it restates the assertion below it.
 
@@ -40,9 +47,9 @@ or names the regression being pinned. It does not when it restates the assertion
 - Compiler and tooling directives: `//go:build`, `//go:generate`, `//go:embed`,
   `# noqa`, `# type: ignore`, `# pragma`, `eslint-disable`, `ts-expect-error`,
   `@ts-ignore`, `#[allow(...)]`, SQL hints
-- Doc comments consumed by a generator or type system (godoc on exported identifiers,
-  JSDoc carrying types, Sphinx/pydoc on public APIs) — tighten padded prose, but keep
-  the block and its tags intact
+- Doc comments a **generator or type checker actually reads**: godoc on exported
+  identifiers, Sphinx/pydoc on a public API, JSDoc that is the type source in a
+  plain-JS project, `@deprecated` and `@see` tags. Tighten the prose, keep the tags.
 - `TODO` / `FIXME` / `HACK` / `XXX` and anything referencing a ticket or issue id
 - Commented-out code — flag it, don't delete it
 
@@ -56,17 +63,22 @@ Edit nothing.
 
 ### Scope
 
-Settle the scope before collecting anything. A whole-repository audit on a large
-codebase produces thousands of rows, which is a worse report than a narrow one.
+Settle the scope before collecting anything, and state it.
 
 | The user asks for | Scope |
 | --- | --- |
-| "audit the comments" on a small repo | Everything tracked |
+| "audit the comments", no qualifier | Everything tracked |
 | a directory, package, or module | Those paths |
 | "the comments in this branch/PR" | Files changed since the base branch |
 
-If they name no scope and the repository is large, propose one rather than
-extracting everything. Say which you picked.
+**Coverage is not the same as reporting.** Whatever the scope, every file in it gets
+classified. A long report is a rendering problem, solved by tiering it — see
+[Report](#report) — not by quietly auditing fewer files. An unasked-for narrowing
+reads as a finished audit while most of the codebase was never opened.
+
+Only propose narrowing when the extraction is genuinely unmanageable — thousands of
+blocks — and then say which paths you are covering, name the ones you are not, and
+offer them as a follow-up. The user narrows the scope; you don't.
 
 ### Collect
 
@@ -173,6 +185,26 @@ Two findings are worth more than the whole cleanup, so hunt for them deliberatel
   code may have been removed by accident, which is a bug, not a comment problem.
 - **Duplicated rationale** across files. Name one canonical home; the other sites point
   at it.
+
+### Check the classification before writing it up
+
+A pass that protects too much looks identical to a clean codebase: a large `keep`
+column and a short diff. Before writing the report, sanity-check the split.
+
+- **Compare classes across comment syntaxes.** Count `keep` for `/** */` blocks
+  against `keep` for `//` blocks. They should be in the same range. A codebase where
+  nearly every line comment is fair game and nearly every doc comment is protected is
+  not a real finding — it means doc syntax is being read as a licence to skip.
+- **Count what you classed `never`.** It should be a short list of licence headers,
+  directives, generated markers and ticket refs. If it runs to dozens of ordinary doc
+  comments, the protected list has been over-applied; re-read
+  [The standard](#the-standard) and reclassify.
+- **Count the files you opened** against the files in scope. Those numbers match, or
+  the scope was narrowed without saying so.
+
+A real measurement of this: two passes over the same repository removed 56 and 51
+line-comment blocks — near-identical judgement — while removing 23 and 1 doc-comment
+blocks. The second pass was not more careful, it had quietly exempted a whole syntax.
 
 ### Report
 
@@ -336,8 +368,14 @@ affected pages and confirm the structure survives.
 Preserve everything the code doesn't carry: reasons, constraints, references, gotchas,
 rejected alternatives. Drop the restatement of mechanics.
 
-Keep the surviving prose in the voice of the file. A rewritten comment that reads as
-freshly generated is a worse outcome than the padding it replaced.
+**Tighten is the normal outcome, not a last resort.** Most comments worth keeping are
+worth shortening: a real reason wrapped in three lines of narration becomes one line
+that still carries the reason. Leaving the padding because the block contains
+something true is how an audit ends with a large `keep` column and little to show.
+
+Keep the surviving prose in the voice of the file — that governs *how* you rewrite,
+not whether. A rewrite that reads as freshly generated is a bad rewrite; it is not an
+argument for leaving the original untouched.
 
 ## Traps
 
