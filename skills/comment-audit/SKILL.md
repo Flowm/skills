@@ -200,7 +200,9 @@ column and a short diff. Check the split before writing it up.
 
 ### Report
 
-Write `comment-audit.md`, grouped by directory. One table per file:
+Write `comment-audit.md`, grouped by directory. Leave it untracked unless the user
+asks for it in the repository — it is scratch for this conversation, and it goes stale
+the moment they resolve an `uncertain` row. One table per file:
 
 ```markdown
 | Line | Comment | Class | Reason |
@@ -369,5 +371,5 @@ argument for leaving the original untouched.
   several indentation depths; a substring replace hits the wrong one or nothing at all.
 - **Batch edits with a script that asserts one match per replacement** and reports
   misses, rather than editing 200 sites by hand. Fix the misses individually.
-- **Don't commit the audit file with the cleanup.** It isn't a comment line, and it goes
-  stale the moment the user resolves an `uncertain` row. Ask what they want done with it.
+- **Don't let the audit file into a commit.** Stage named paths rather than `git add -A`,
+  which would sweep up `comment-audit.md` and break the comment-only claim.
