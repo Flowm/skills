@@ -30,12 +30,18 @@ A field doc earns its place when it adds a unit, a range, a null contract, a def
 format, or an ordering convention — none of which the type carries. It does not when it
 restates the identifier.
 
-**A `/** */` block is not protected by its syntax.** In a typed language the signature
-already carries the types, so a doc comment faces the same test as any other comment
-and is deleted on the same grounds. `/** Every stored weight set on this device. */`
-over `listWeights(): WeightEntry[]` adds "on this device" and nothing else; if that
-scope matters, tighten to it, and if it doesn't, the block goes. Only the narrow cases
-under [Never touch](#never-touch) survive on syntax alone.
+**A `/** */` block is not protected by its syntax, and it isn't fair game either.** The
+test is whether it tells a caller something the signature cannot. The types are already
+declared, so `/** Every stored weight set on this device. */` over
+`listWeights(): WeightEntry[]` adds "on this device" and nothing else — tighten to that
+or drop it, and treat `@param options - Configuration options` the same way.
+
+What a signature cannot carry is how to **use** the thing. A worked `@example`, a
+`@throws` contract, an ordering requirement like "call this after mount" — keep those at
+full length. When a composable's examples are what tell a caller to watch `needRefresh`
+and then call `updateApp()` on confirm, they are the only part of the block that reader
+needed; collapsing them into a one-line summary loses the documentation and keeps the
+restatement, however tidy the result looks.
 
 A test comment earns its place when it derives an expected value through several steps,
 or names the regression being pinned. It does not when it restates the assertion below it.
@@ -49,7 +55,8 @@ or names the regression being pinned. It does not when it restates the assertion
   `@ts-ignore`, `#[allow(...)]`, SQL hints
 - Doc comments a **generator or type checker actually reads**: godoc on exported
   identifiers, Sphinx/pydoc on a public API, JSDoc that is the type source in a
-  plain-JS project, `@deprecated` and `@see` tags. Tighten the prose, keep the tags.
+  plain-JS project. Tighten the padded prose, but keep `@example`, `@throws`,
+  `@deprecated` and `@see` blocks whole.
 - `TODO` / `FIXME` / `HACK` / `XXX` and anything referencing a ticket or issue id
 - Commented-out code — flag it, don't delete it
 
@@ -85,30 +92,36 @@ offer them as a follow-up. The user narrows the scope; you don't.
 Don't read every file. Extract the comments mechanically, then read only the files
 where the classification is genuinely unclear.
 
-Run `scripts/extract_comments.py` from this skill's directory, with the working
-directory set to the repository being audited — it reads the file list from git:
+The skill ships one tool, `scripts/comment_audit.py` — Python, shells out only to
+`git`, never checks anything out; invoke it as `python3 <path>` where the shebang
+isn't honoured. Its three subcommands (`extract`, `verify`, `compare`) share scope
+semantics: positional arguments are git pathspecs, so a directory scopes to
+everything under it, and `--ext ts,vue` narrows by language. `$SKILL_DIR` below is
+this skill's directory (the one containing this SKILL.md); set it once.
+
+Run `extract` with the working directory set to the repository being audited — it
+reads the file list from git:
 
 ```bash
-"$SKILL_DIR"/scripts/extract_comments.py
-"$SKILL_DIR"/scripts/extract_comments.py src/components src/composables
-"$SKILL_DIR"/scripts/extract_comments.py --since main
+"$SKILL_DIR"/scripts/comment_audit.py extract
+"$SKILL_DIR"/scripts/comment_audit.py extract src/components src/composables
+"$SKILL_DIR"/scripts/comment_audit.py extract --since main
 ```
 
-It prints every comment block with its following code line, grouped by file. Both
-scripts are Python and shell out only to `git`; invoke them as `python3 <path>` where
-the shebang isn't honoured. Positional arguments are git pathspecs, so a directory
-scopes to everything under it, and `--ext ts,vue` narrows by language. Add an entry to
-`LANGS` in the script only when a language it doesn't know is in scope; don't edit it
-per repository otherwise.
+It prints every comment block with its following code line, grouped by file. Add an
+entry to `LANGS` in the script only when a language it doesn't know is in scope;
+don't edit it per repository otherwise.
 
-Two more modes, both for the report:
+Two more output modes:
 
+- `--count` prints totals only. Run it first to size the scope — it is how you
+  decide between a flat and a tiered report before extracting anything.
 - `--tsv` emits `file, line, branch, comment, code` columns. Build the report table
   from these rather than retyping the listing — see [Report](#report).
-- `--count` prints totals only, for the reconciliation in Phase 2.
-- `--rev REF` reads the files as they were at a commit, through `git show`. Nothing
-  is checked out, so it is safe to point at another revision while uncommitted work
-  sits in the tree.
+
+`--rev REF` reads the files as they were at a commit, through `git show`. Nothing
+is checked out, so it is safe to point at another revision while uncommitted work
+sits in the tree.
 
 `--exclude` drops paths by substring, but the list comes from `git ls-files`, so
 ignored paths are already out — reach for it only when vendored code is tracked.
@@ -140,15 +153,18 @@ that was load-bearing?" needs the state before it. Extract both sides and diff t
 listings:
 
 ```bash
-BASE="$(git merge-base main HEAD)"
-"$SKILL_DIR"/scripts/extract_comments.py --rev "$BASE" --tsv > /tmp/before.tsv
-"$SKILL_DIR"/scripts/extract_comments.py --tsv > /tmp/after.tsv
-diff <(cut -f4 /tmp/before.tsv | sort) <(cut -f4 /tmp/after.tsv | sort)
+"$SKILL_DIR"/scripts/comment_audit.py compare "$(git merge-base main HEAD)"
 ```
 
-Lines only in `before.tsv` are the comments the branch removed. Judge those against
-the standard exactly as if they were still there, and flag any that carried a reason
-the code doesn't.
+It pairs blocks by the code line beneath them and reports **deleted**, **rewritten**
+and **added** separately — a text diff of comment bodies would call a tightening a
+deletion. The per-syntax line totals are how you catch a pass that shortened doc
+comments without deleting any, or never touched them at all.
+
+It ends with the blocks that lost content the code cannot carry — dropped `@example`
+or `@throws` tags, units, references — and exits non-zero when there are any. Treat
+that list as a review queue, not a verdict: read each one and judge it against the
+standard.
 
 ### Classify
 
@@ -201,8 +217,8 @@ column and a short diff. Check the split before writing it up.
 ### Report
 
 Write `comment-audit.md`, grouped by directory. Leave it untracked unless the user
-asks for it in the repository — it is scratch for this conversation, and it goes stale
-the moment they resolve an `uncertain` row. One table per file:
+asks for it in the repository — it is scratch for this conversation. One table per
+file:
 
 ```markdown
 | Line | Comment | Class | Reason |
@@ -271,80 +287,36 @@ For each group:
 2. Run the formatter — it may reflow the comments you just rewrote.
 3. Run lint, typecheck, build, and tests.
 4. Verify the diff is comment-only (below).
-5. Reconcile the line counts (below).
-6. Commit that group alone.
+5. Commit that group alone.
 
 If the build or tests break, revert that group and report it. Never adjust code to
 compensate.
 
 ### Verifying comment-only
 
-`git diff -I` drops a change when **every** one of its changed lines matches the
-pattern, so a comment-only cleanup leaves nothing behind:
-
 ```bash
-git diff --stat -I'^[[:space:]]*(//|/\*|\*|<!--|-->)' -- <paths>
+"$SKILL_DIR"/scripts/comment_audit.py verify HEAD <paths>
 ```
 
-Empty output means every changed line was a comment. Any file listed has something
-else in it — drop `--stat` to read the surviving hunks. Each one is either a comment
-body line that doesn't start with a token (block-comment prose, a JSDoc continuation
-that lost its `*`) or a real code change that must be undone.
+One run, two independent checks; the exit status is non-zero when either objects.
+Pass a branch instead of `HEAD` to check a whole cleanup.
 
-**Expect survivors; the list is not a failure.** Deleting a comment usually takes its
-trailing blank line with it, and a blank line matches no token. On a real 77-file
-cleanup this listed 18 files — every one a comment-plus-blank hunk or a multi-line
-HTML comment body, no code changes at all.
+**Survivors.** Every changed line that is blank or starts with a comment token for
+that file's language is dropped, and the rest are printed. Anything printed is
+either block-comment prose (a multi-line HTML comment body, a doc-comment line that
+lost its `*`) — expected, not a failure — or a real code change that must be undone.
+Read each one; on a real 77-file cleanup the survivors were all prose. The tokens
+come from the extractor's per-language table, so a TypeScript `#offset`, a CSS
+`#app`, or a Rust `#[derive(...)]` is never mistaken for a comment; files whose
+extension it doesn't know are reported in full, and the output flags the one shape
+it cannot tell apart (a JS generator method starts with `*` like doc-comment prose).
 
-When opening each survivor is the slow part, filter by line instead. That drops blank
-lines, which `-I` cannot:
-
-```bash
-git diff -U0 -- <paths> | grep -E '^[-+]' | grep -vE '^(\+\+\+|---)' \
-  | grep -vE '^[-+][[:space:]]*((//|/\*|\*|<!--|-->).*)?$'
-```
-
-That leaves 34 lines on the same cleanup, all comment prose. Pick whichever suits the
-size of the diff. Note `\*` already covers `*/`, and `-I` matches content without the
-`+`/`-` prefix, so neither needs adding.
-
-Add `-I'^[[:space:]]*#'` for Python paths, and **only** for those. `#` is a private
-field in TypeScript, an id selector in CSS, and an attribute in Rust; include it there
-and a deleted `#offset`, a renamed `#app`, or an edited `#[derive(...)]` vanishes from
-the output, which then reads as "comment-only". `*` is the same hazard in miniature —
-it also opens a JS generator method.
-
-Never pass an `-I` pattern that can match the empty string. `-I'^$'` and
-`-I'^[[:space:]]*$'` make git ignore the diff wholesale, and every real change
-disappears with it. That is why blank-line changes are not filtered here; a hunk that
-adds or removes one gets reported, which is the safe direction.
-
-### Reconciling the line counts
-
-A second check that never looks at a comment token in the diff:
-
-```bash
-"$SKILL_DIR"/scripts/reconcile_comment_lines.py HEAD
-```
-
-If every non-blank line the diff touched was a comment, the extractor's comment-line
-delta equals the diff's net non-blank delta. The script computes both and exits
-non-zero when they disagree. Pass a branch instead of `HEAD` to check a whole cleanup,
-and give it the same scope flags as the extractor so both counts cover the same files.
-It only reads — the base state comes out of `git show`, nothing is checked out.
-
-It earns its place by being independent of the token list: if `LANGS` is wrong for a
-language in scope, the comment count is wrong and the two figures stop agreeing. The
-comment-only filter cannot notice that, because it is built from the same assumption.
-
-**It does not replace that filter.** A *modified* line is one deletion plus one
-insertion, so `retries = 3` becoming `retries = 5` nets to zero and reconciles
-cleanly. `git diff -I` catches that; this catches lines added or deleted. Run both.
-
-One known false alarm: removing a trailing comment shortens a line that stays in the
-file, so the comment count drops while the diff's non-blank net holds at zero. Expect
-a mismatch of one per trailing comment removed, and read a small mismatch before
-believing it.
+**Line counts.** If every non-blank changed line was a comment, the comment-line
+delta equals the diff's net non-blank delta. The diff side never looks at a comment
+token, so this catches what the survivor check is structurally blind to: a wrong or
+missing `LANGS` entry skewing the count. A *modified* code line nets to zero here
+but survives the first check — the two cover each other. Read a small mismatch
+before believing it; the output names the known trailing-comment false alarm.
 
 When the edits touch UI templates, compile-and-test is not full proof. Render the
 affected pages and confirm the structure survives.
