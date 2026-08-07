@@ -1,6 +1,7 @@
 ---
 name: frontend-project-structure
 description: Default project structure, tooling, and library choices for frontend web apps (Vue 3 + Vite + TypeScript + Tailwind, deployed to Cloudflare Workers). Use this skill whenever scaffolding a new frontend project or SPA, adding tooling to one (linting, formatting, testing, CI, PWA, deployment), restructuring an existing frontend repo, or deciding which library or pattern to use for state, routing, charts, styling, or backend logic — even if the user doesn't explicitly ask for "the default structure".
+disable-model-invocation: true
 ---
 
 # Frontend Project Structure
