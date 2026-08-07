@@ -18,6 +18,15 @@ never code, identifiers, strings, or behaviour.
 - No qualifier → ask, or default to the files changed in the working tree. Do not
   sweep the whole repository unless the user asks for that.
 
+Under branch scope, only touch comments in code the branch itself added or edited.
+Cleaning the rest inflates the diff and hands the reviewer a mixed commit — offer it
+as a follow-up instead. Also read the branch's commit messages (`git log`) and, where
+they are padded, propose shorter versions — propose only; do not rewrite history
+unless the user asks.
+
+When the scope covers more than a couple dozen files, list the planned deletions
+first and wait for a go before editing.
+
 ## Decide per comment: delete, reword, or keep
 
 **Delete** when the code already says it:
@@ -41,11 +50,19 @@ story usually compress to one line that still says why.
 - Usage a signature cannot carry: `@example`, `@throws`, "call after mount".
 - When unsure, keep. A kept comment costs little; a deleted reason is gone.
 
+Two quick tests: a field doc earns its place when it adds a unit, a range, a null
+contract, a default, a format, or an ordering the type does not carry. A test comment
+earns its place when it derives an expected value through several steps or names the
+regression it pins — not when it restates the assertion below it.
+
 **Never touch:**
 
 - Licence and copyright headers, generated-file markers.
 - Tooling directives: `eslint-disable`, `@ts-expect-error`, `# noqa`,
-  `# type: ignore`, `//go:build`, `#[allow(...)]`, and the like.
+  `# type: ignore`, `# pragma`, `//go:build`, `//go:generate`, `#[allow(...)]`,
+  SQL hints, and the like. Doc comments a tool reads — godoc on exported
+  identifiers, JSDoc that is the type source in plain JS — stay in place: tighten
+  their prose, do not delete them.
 - `TODO` / `FIXME` / `HACK` and anything referencing a ticket or issue.
 - Commented-out code — flag it for the user, do not delete it.
 
@@ -64,10 +81,22 @@ rules that matter most here:
 - A verb, not a noun chain: "retries the request", not "performs request retry
   logic".
 
+Concise means removing words that carry no fact, not telegraph style. Keep articles
+and complete grammar so the sentence survives one read.
+
 Match the voice and comment style of the surrounding file. A rewrite that reads as
 freshly generated is a bad rewrite.
 
 ## Apply and verify
+
+Editing traps:
+
+- Banner blocks span multiple lines. Removing the dashes but not the label, or the
+  reverse, leaves an orphan — rewrite the block as a whole.
+- Match full lines including leading whitespace. The same comment text appears at
+  several indentation depths; a substring replace hits the wrong one or nothing.
+- When batch-editing many sites with a script, assert one match per replacement and
+  report misses. Fix the misses by hand.
 
 1. Edit the comments, grouped by directory or module.
 2. Run the formatter if the project has one — it may reflow what you rewrote.
