@@ -1,6 +1,7 @@
 ---
 name: comment-audit
 description: Audit the comments in a codebase for value and verbosity, then rewrite or remove the ones that don't earn their place. Use when the user asks to "audit comments", "clean up comments", "review the comments", "trim the comments", "are these comments useful", "there are too many comments", or asks for a comment pass over a repo, a directory, or the files changed in a branch or pull request. Runs as triage-then-apply with a report in between, so the user filters before anything is edited.
+disable-model-invocation: true
 ---
 
 # Comment Audit
